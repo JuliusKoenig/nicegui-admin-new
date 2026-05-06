@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/nicegui-admin-new.iml" filepath="$PROJECT_DIR$/nicegui-admin-new.iml" />
+      <module fileurl="file://$PROJECT_DIR$/extensions/nicegui-admin_mailing/nicegui-admin_mailing.iml" filepath="$PROJECT_DIR$/extensions/nicegui-admin_mailing/nicegui-admin_mailing.iml" />
+    </modules>
+  </component>
+</project>

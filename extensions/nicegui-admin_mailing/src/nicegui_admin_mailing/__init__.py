@@ -1,0 +1,1 @@
+from nicegui_admin_mailing.extension import mailing_extension

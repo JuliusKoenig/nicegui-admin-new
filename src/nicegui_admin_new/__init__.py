@@ -1,0 +1,10 @@
+from nicegui_admin_new.admin import (settings, core_api_app, core_api_router, core_admin)
+
+__title__ = "nicegui-admin"
+__description__ = "A simple admin interface for NiceGUI applications, providing an easy way to manage and monitor your NiceGUI apps."
+__version__ = "0.1.0"
+__author__ = "Julius Koenig"
+__author_email__ = "info@bastelquartier.de"
+__license__ = "GPL-3.0"
+__license_url__ = "https://www.gnu.org/licenses/gpl-3.0.md"
+__terms_of_service__ = "https://bastelquartier.de/terms-of-service"

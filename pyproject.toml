@@ -1,0 +1,17 @@
+[project]
+name = "nicegui-admin-new"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "rich>=15.0.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.9,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.sources]
+nicegui-admin_smtp-email = { workspace = true }
+
+[tool.uv.workspace]
+members = ["extensions/*"]
