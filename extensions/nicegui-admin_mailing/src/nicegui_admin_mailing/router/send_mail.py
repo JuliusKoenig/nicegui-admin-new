@@ -1,12 +1,15 @@
+from fastapi import Depends
 from nicegui import ui
 
+from nicegui_admin_new.elements.log_drawer import LogDrawer
+from nicegui_admin_new.layout import NiceguiAdminLayout
 from nicegui_admin_new.routing import NiceguiAdminAPIRouter
 
 mailing = NiceguiAdminAPIRouter()
 
 
 @mailing.layout(path="/send-mail")
-async def send_mail():
+async def send_mail(layout_result = None):
     async def start_new_task():
         ui.notify("start new task")
         # result: AsyncResult = send_mail.apply_async(kwargs={"recipient": receiver.value,

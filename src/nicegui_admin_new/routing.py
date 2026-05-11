@@ -111,6 +111,14 @@ class NiceguiAdminPage(page):
                     # render layout
                     layout_result = layout(*dec_args, **dec_kwargs)
 
+                    # add layout to dec_kwargs
+                    if "layout" in dec_kwargs:
+                        dec_kwargs["layout"] = layout
+
+                    # add layout_result to dec_kwargs
+                    if "layout_result" in dec_kwargs:
+                        dec_kwargs["layout_result"] = layout_result
+
                     result = func(*dec_args, **dec_kwargs)
                 except Exception as e:
                     return create_500_error_page(e, request)
