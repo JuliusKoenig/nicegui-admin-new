@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings
 BASE_PREFIX = "NICEGUI_ADMIN_"
 
 
-class Settings(BaseSettings):
+class NiceguiAdminSettings(BaseSettings):
     model_config = {
         "case_sensitive": False,
         "env_prefix": BASE_PREFIX
@@ -29,12 +29,12 @@ class Settings(BaseSettings):
                               ge=1,
                               lt=65535)
     uvicorn_workers: int | None = Field(default=None,
-                                 title="Uvicorn Workers",
-                                 description="Uvicorn Workers",
-                                 ge=1)
+                                        title="Uvicorn Workers",
+                                        description="Uvicorn Workers",
+                                        ge=1)
     uvicorn_reload: bool = Field(default=False,
-                         title="Uvicorn Reload",
-                         description="Uvicorn Reload")
+                                 title="Uvicorn Reload",
+                                 description="Uvicorn Reload")
 
     # nicegui
     nicegui_title: str = Field(default="Nicegui-Admin",

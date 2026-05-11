@@ -1,5 +1,3 @@
-from nicegui_admin_new.admin import (settings, core_api_app, core_api_router, core_admin)
-
 __title__ = "nicegui-admin"
 __description__ = "A simple admin interface for NiceGUI applications, providing an easy way to manage and monitor your NiceGUI apps."
 __version__ = "0.1.0"
