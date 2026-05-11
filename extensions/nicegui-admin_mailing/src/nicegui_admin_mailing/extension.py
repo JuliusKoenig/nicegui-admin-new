@@ -54,6 +54,6 @@ mailing_extension = MailingExtension(info=NiceguiAdminBaseExtension.Info(base_pa
                                                                          description="Mailing extension for nicegui admin.",
                                                                          version="1.0.0",
                                                                          router_directories=[Path("router")],
-                                                                         layout_directories=[Path("layouts")],
+                                                                         layout_directories=[],
                                                                          static_directories=[Path("static")],
                                                                          task_directories=[Path("tasks")]))

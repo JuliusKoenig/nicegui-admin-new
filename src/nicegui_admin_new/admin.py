@@ -401,12 +401,7 @@ class NiceguiAdmin(NiceguiAdminType):
         return extensions
 
     async def ui_root(self):
-        self.logger.debug(f"Nicegui Admin Root ...")
-        ui.label("Hello World")
-        ui.label("All Routes:")
-        for route in ui_app.router.routes:
-            ui.link(text=route.name,
-                    target=route.path)
+        ui.label("root")
 
     async def api_root(self):
         self.logger.debug(f"Nicegui Admin API Root ...")

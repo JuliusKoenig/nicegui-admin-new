@@ -9,4 +9,4 @@ class NiceguiAdminLayout(NiceguiAdminType):
         super().__post_init__()
 
     def __call__(self, *args, **kwargs):
-        print()
+        ...
