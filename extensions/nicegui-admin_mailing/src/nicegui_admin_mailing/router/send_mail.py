@@ -1,21 +1,24 @@
+from celery.result import AsyncResult
 from fastapi import Depends
 from nicegui import ui
 
-from nicegui_admin_new.elements.log_drawer import LogDrawer
-from nicegui_admin_new.layout import NiceguiAdminLayout
+from nicegui_admin_new.admin import NiceguiAdmin
+from nicegui_admin_new.dependencies.admin import get_admin
 from nicegui_admin_new.routing import NiceguiAdminAPIRouter
 
 mailing = NiceguiAdminAPIRouter()
 
 
 @mailing.layout(path="/send-mail")
-async def send_mail(layout_result = None):
+async def send_mail(layout_result = None,
+                    admin: NiceguiAdmin = Depends(get_admin)):
     async def start_new_task():
         ui.notify("start new task")
-        # result: AsyncResult = send_mail.apply_async(kwargs={"recipient": receiver.value,
-        #                                                     "subject": subject.value,
-        #                                                     "html_str": editor.value})
-        # ui.notify(result)
+        task = admin.tasks.get("nicegui_admin_mailing.send_mail")
+        result: AsyncResult = task.apply_async(kwargs={"recipient": receiver.value,
+                                                            "subject": subject.value,
+                                                            "html_str": editor.value})
+        ui.notify(result)
 
     with ui.card().classes("w-full").tight():
         with ui.card_section().classes("w-full"):

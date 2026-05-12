@@ -174,7 +174,7 @@ class NiceguiAdminSettings(BaseSettings):
     broker_password: str = Field(default=...,
                                  title="Broker Password",
                                  description="Broker Password")
-    broker_host: IPv4Address = Field(default=...,
+    broker_host: IPv4Address | str = Field(default=...,
                                      title="Broker Host",
                                      description="Broker Host")
     broker_port: int = Field(default=...,
@@ -190,7 +190,7 @@ class NiceguiAdminSettings(BaseSettings):
     db_password: str = Field(default=...,
                              title="DB Password",
                              description="DB Password")
-    db_host: IPv4Address = Field(default=...,
+    db_host: IPv4Address | str = Field(default=...,
                                  title="DB Host",
                                  description="DB Host")
     db_port: int = Field(default=...,
