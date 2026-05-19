@@ -10,9 +10,9 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlmodel import Session, select
 from starlette.middleware import Middleware
 
-from examples.own_worker.db import engine, create_db_and_tables, Worker
+from examples.own_worker.db import engine, create_db_and_tables, Worker, Task
 from examples.own_worker.middleware import SqlModelSessionMiddleware, sql_model_session_dependency
-from examples.own_worker.models import WorkerReadModel, WorkerWriteModel
+from examples.own_worker.models import WorkerReadModel, WorkerWriteModel, TaskReadModel, TaskWriteModel
 from examples.own_worker.router import CrudRouter
 
 
@@ -100,6 +100,20 @@ async def verify_token(pk: int,
     return result
 
 app.include_router(worker_router)
+
+
+class TaskRouter(CrudRouter):
+    def __init__(self):
+        super().__init__(prefix="/task",
+                         tags=["Task"],
+                         name="Task",
+                         model=Task,
+                         read_model=TaskReadModel,
+                         write_model=TaskWriteModel)
+
+
+task_router = TaskRouter()
+app.include_router(task_router)
 
 if __name__ == '__main__':
     uvicorn.run(app, host="0.0.0.0", port=8000)

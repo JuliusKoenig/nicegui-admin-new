@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from sqlmodel import Field, SQLModel, create_engine
+from sqlmodel import Field, Relationship, SQLModel, create_engine
 
 ENCODING = "utf-8"
 HASH_FUNCTION = "sha256"
@@ -29,6 +29,7 @@ class Worker(SQLModel, table=True):
     status: Status = Field(default=Status.IDLE,
                            nullable=False)
     token: str | None = Field(default=None)
+    current_task: "Task" = Relationship(back_populates="current_worker")
 
     def hash_token(self,
                    token: str,
@@ -87,6 +88,36 @@ class Worker(SQLModel, table=True):
         )
         result = hashed_token["hashed_password"] == hashed_verify_token["hashed_password"]
         return result
+
+
+class Task(SQLModel, table=True):
+    id: int | None = Field(default=None,
+                           primary_key=True)
+    name: str = Field(default=...,
+                      nullable=False)
+    current_worker_id: int | None = Field(default=None,
+                                          foreign_key="worker.id")
+    current_worker: Worker | None = Relationship(back_populates="current_task")
+
+    class Status(str, Enum):
+        QUEUED = "QUEUED"
+        RUNNING = "RUNNING"
+        FINISHED = "FINISHED"
+        ERROR = "ERROR"
+
+    status: Status = Field(default=Status.QUEUED,
+                           nullable=False)
+    kwargs: str | None = Field(default=None)
+    logs: list["TaskLog"] = Relationship(back_populates="task")
+
+
+class TaskLog(SQLModel, table=True):
+    id: int | None = Field(default=None,
+                           primary_key=True)
+    task_id: int = Field(foreign_key="task.id")
+    task: Task = Relationship(back_populates="logs")
+    text: str = Field(default=...,
+                      nullable=False)
 
 
 engine = create_engine(url=f"sqlite:///test.db",
