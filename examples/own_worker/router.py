@@ -160,7 +160,7 @@ class CrudRouter(APIRouter):
                                                                                                    annotation=int,
                                                                                                    kind=Parameter.POSITIONAL_OR_KEYWORD),
                                                                                          Parameter(name="where",
-                                                                                                   default="{}",
+                                                                                                   default="{\"name\": {\"is_not_null\": \"\"}}",
                                                                                                    annotation=str | None,
                                                                                                    kind=Parameter.POSITIONAL_OR_KEYWORD),
                                                                                          Parameter(name="order_by",
