@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings
 BASE_PREFIX = "NICEGUI_ADMIN_"
 
 
-class Settings(BaseSettings):
+class NiceguiAdminSettings(BaseSettings):
     model_config = {
         "case_sensitive": False,
         "env_prefix": BASE_PREFIX
@@ -29,12 +29,12 @@ class Settings(BaseSettings):
                               ge=1,
                               lt=65535)
     uvicorn_workers: int | None = Field(default=None,
-                                 title="Uvicorn Workers",
-                                 description="Uvicorn Workers",
-                                 ge=1)
+                                        title="Uvicorn Workers",
+                                        description="Uvicorn Workers",
+                                        ge=1)
     uvicorn_reload: bool = Field(default=False,
-                         title="Uvicorn Reload",
-                         description="Uvicorn Reload")
+                                 title="Uvicorn Reload",
+                                 description="Uvicorn Reload")
 
     # nicegui
     nicegui_title: str = Field(default="Nicegui-Admin",
@@ -174,7 +174,7 @@ class Settings(BaseSettings):
     broker_password: str = Field(default=...,
                                  title="Broker Password",
                                  description="Broker Password")
-    broker_host: IPv4Address = Field(default=...,
+    broker_host: IPv4Address | str = Field(default=...,
                                      title="Broker Host",
                                      description="Broker Host")
     broker_port: int = Field(default=...,
@@ -190,7 +190,7 @@ class Settings(BaseSettings):
     db_password: str = Field(default=...,
                              title="DB Password",
                              description="DB Password")
-    db_host: IPv4Address = Field(default=...,
+    db_host: IPv4Address | str = Field(default=...,
                                  title="DB Host",
                                  description="DB Host")
     db_port: int = Field(default=...,

@@ -1,358 +1,422 @@
 import importlib
-import traceback
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import uvicorn
 from celery import Celery
-from fastapi import FastAPI
-from nicegui import ui, app as ui_app, APIRouter
+from celery.apps.worker import Worker
+from nicegui import ui, app as ui_app, App as UiApp, Client
+from nicegui.middlewares import RedirectWithPrefixMiddleware, SetCacheControlMiddleware
+from starlette.routing import Route
+from typer import Typer
 
-from nicegui_admin_new.console import console
+from nicegui_admin_new import __name__ as __package_name__
 from nicegui_admin_new.extension import NiceguiAdminBaseExtension
-from nicegui_admin_new.layout import NiceGuiAdminBaseLayout
-from nicegui_admin_new.settings import Settings
-from nicegui_admin_new.type import NiceguiAdminType
+from nicegui_admin_new.layout import NiceguiAdminLayout
+from nicegui_admin_new.logger import logger as __module_logger__
+from nicegui_admin_new.routing import NiceguiAdminAPIRouter
+from nicegui_admin_new.settings import NiceguiAdminSettings
 from nicegui_admin_new.task import NiceguiAdminBaseTask
+from nicegui_admin_new.type import NiceguiAdminType
 
 
 @dataclass
-class NiceguiBaseAdmin(NiceguiAdminType):
-    router: APIRouter = field(default_factory=lambda: APIRouter(prefix=settings.nicegui_mount_path),
-                                              metadata={"private": True})
+class NiceguiAdmin(NiceguiAdminType):
+    settings: NiceguiAdminSettings = field(default_factory=lambda: NiceguiAdminSettings(),
+                                           metadata={"private": True})
+    logger: logging.Logger = field(default=__module_logger__,
+                                   metadata={"private": True})
 
     def __post_init__(self):
         super().__post_init__()
 
-        # register root page
-        self.router.get("/")(self.root)
+        # init ui app
+        self.logger.debug(f"Init Nicegui App ...")
+        ui_app.config.add_run_config(
+            reload=False,
+            title=self.settings.nicegui_title,
+            viewport=self.settings.nicegui_viewport,
+            favicon=self.settings.nicegui_favicon,
+            dark=self.settings.nicegui_dark,
+            language=self.settings.nicegui_language,
+            binding_refresh_interval=self.settings.nicegui_binding_refresh_interval,
+            reconnect_timeout=self.settings.nicegui_reconnect_timeout,
+            message_history_length=self.settings.nicegui_message_history_length,
+            cache_control_directives=self.settings.nicegui_cache_control_directives,
+            tailwind=self.settings.nicegui_tailwind,
+            unocss=self.settings.nicegui_unocss,
+            prod_js=self.settings.nicegui_prod_js,
+            show_welcome_message=self.settings.nicegui_show_welcome_message,
+            markdown=False,
+        )
+        ui_app.config.endpoint_documentation = "all"
+        ui_app.add_middleware(RedirectWithPrefixMiddleware)
+        ui_app.add_middleware(SetCacheControlMiddleware)
 
-        def _scan_for_python_files(root: Path):
-            files = []
-            for d in root.iterdir():
-                if d.is_dir():
-                    r = _scan_for_python_files(root=d)
-                    files.extend(r)
-                elif d.is_file() and d.suffix == ".py" and d.stem != "__init__":
-                    files.append(d)
-            return files
-
-        # load core tasks
-        _python_file_paths = _scan_for_python_files(root=Path(__file__).parent / "tasks")
-
-        # get import strings
-        _import_strings = []
-        for _python_file_path in _python_file_paths:
-            _import_string = _python_file_path.relative_to(_python_file_path.parent.parent.parent).with_suffix("").as_posix().replace("/", ".")
-            _import_strings.append(_import_string)
-
-        # import task files
-        for _import_string in _import_strings:
-            try:
-                importlib.import_module(_import_string)
-            except ModuleNotFoundError as e:
-                console.print(f"Module '{_import_string}' not found!\n"
-                              f"{e}", style="red")
-                raise e
-            except Exception as e:
-                console.print(f"Error loading module '{_import_string}'!\n"
-                              f"{e}", style="red")
-                raise e
-
-        # load core layouts
-        _python_file_paths = _scan_for_python_files(root=Path(__file__).parent / "layouts")
-
-        # get import strings
-        _import_strings = []
-        for _python_file_path in _python_file_paths:
-            _import_string = _python_file_path.relative_to(_python_file_path.parent.parent.parent).with_suffix("").as_posix().replace("/", ".")
-            _import_strings.append(_import_string)
-
-        # import layout files
-        for _import_string in _import_strings:
-            try:
-                layout_module = importlib.import_module(_import_string)
-
-                # look up for NiceGuiAdminBaseLayout subclasses in module
-                for attr_name, attr in layout_module.__dict__.items():
-                    if attr_name.startswith("_"):
-                        continue
-
-                    # check if attr is a instance of NiceGuiAdminBaseLayout
-                    if not isinstance(attr, NiceGuiAdminBaseLayout):
-                        continue
-
-                    # add extension
-                    console.print(f"include layout '{attr_name}'")
-                    self.add_child(attr)
-            except ModuleNotFoundError as e:
-                console.print(f"Module '{_import_string}' not found!\n"
-                              f"{e}", style="red")
-                tb = traceback.format_tb(e.__traceback__)
-                console.print(tb, style="red")
+        for route in ui_app.routes:
+            if not isinstance(route, Route):
                 continue
-            except Exception as e:
-                console.print(f"Error loading module '{_import_string}'!\n"
-                              f"{e}", style="red")
-                tb = traceback.format_tb(e.__traceback__)
-                console.print(tb, style="red")
-                continue
+            if route.path.startswith('/_nicegui') and hasattr(route, 'methods'):
+                route.tags = ["internal"]
+                route.include_in_schema = True
+            if route.path == '/' or route.path in Client.page_routes.values():
+                route.include_in_schema = True
 
-        # load core routes
-        _python_file_paths = _scan_for_python_files(root=Path(__file__).parent / "routers")
+        ui_app.docs_url = self.settings.fastapi_docs_url
+        ui_app.redoc_url = self.settings.fastapi_redoc_url
+        ui_app.openapi_url = self.settings.fastapi_openapi_url
+        ui_app.title = self.settings.fastapi_title
+        ui_app.summary = self.settings.fastapi_summary
+        ui_app.description = self.settings.fastapi_description
+        ui_app.version = self.settings.fastapi_version
+        ui_app.terms_of_service = self.settings.fastapi_terms_of_service
+        ui_app.contact = self.settings.fastapi_contact
+        ui_app.license_info = self.settings.fastapi_license_info
+        ui_app.setup()
+        ui_app.admin = self
+        self.logger.debug(f"Nicegui App init done.")
 
-        # get import strings
-        _import_strings = []
-        for _python_file_path in _python_file_paths:
-            _import_string = _python_file_path.relative_to(_python_file_path.parent.parent.parent).with_suffix("").as_posix().replace("/", ".")
-            _import_strings.append(_import_string)
+        # import router
+        self.logger.debug(f"Import Nicegui Admin Router ...")
+        for router_file_path in self._scan_for_python_files(root=Path(__file__).parent / "router"):
+            self._import_router(router_file_path=router_file_path)
+        self.logger.debug(f"Nicegui Admin Router import done.")
 
-        # import router files
-        for _import_string in _import_strings:
-            try:
-                router_module = importlib.import_module(_import_string)
-                print()
+        # import layouts
+        self.logger.debug(f"Import Nicegui Admin Layouts ...")
+        for layout_file_path in self._scan_for_python_files(root=Path(__file__).parent / "layouts"):
+            self._import_layout(layout_file_path=layout_file_path)
 
-                # look up for NiceGuiAdminBaseAPIRouter subclasses in module
-                for attr_name, attr in router_module.__dict__.items():
-                    if attr_name.startswith("_"):
-                        continue
+        # add static files
+        self.logger.debug(f"Add static files ...")
+        self._add_static(url_path="/static",
+                         local_directory=Path(__file__).parent / "static")
+        self.logger.debug(f"Add static files done.")
 
-                    # check if attr is a instance of NiceGuiAdminBaseAPIRouter
-                    if not isinstance(attr, APIRouter):
-                        continue
+        # get tasks directories
+        tasks_directories = [Path(__file__).parent / "tasks"]
 
-                    # add extension
-                    console.print(f"include router '{attr_name}'")
-                    self.router.include_router(attr)
-            except ModuleNotFoundError as e:
-                console.print(f"Module '{_import_string}' not found!\n"
-                              f"{e}", style="red")
-                tb = traceback.format_tb(e.__traceback__)
-                console.print(tb, style="red")
-                continue
-            except Exception as e:
-                console.print(f"Error loading module '{_import_string}'!\n"
-                              f"{e}", style="red")
-                tb = traceback.format_tb(e.__traceback__)
-                console.print(tb, style="red")
-                continue
+        # init celery
+        self.logger.debug(f"Init Celery ...")
+        include = [task_directory
+                   .relative_to(Path(__file__).parent.parent)
+                   .with_suffix("")
+                   .as_posix()
+                   .replace("/", ".") for task_directory in tasks_directories]
+        self._celery = Celery(__package_name__,
+                              include=include,
+                              task_cls=f"{__package_name__}.task:NiceguiAdminBaseTask")
+        self._celery.conf.update(broker_url=(f"pyamqp://{self.settings.broker_username}:"
+                                             f"{self.settings.broker_password}@"
+                                             f"{self.settings.broker_host}:"
+                                             f"{self.settings.broker_port}"),
+                                 result_backend=(f"db+mysql+pymysql://"
+                                                 f"{self.settings.db_username}:"
+                                                 f"{self.settings.db_password}@"
+                                                 f"{self.settings.db_host}:"
+                                                 f"{self.settings.db_port}/"
+                                                 f"{self.settings.db_name}"),
+                                 beat_scheduler="sqlalchemy_celery_beat.schedulers:DatabaseScheduler",
+                                 beat_dburi=(f"mysql+pymysql://"
+                                             f"{self.settings.db_username}:"
+                                             f"{self.settings.db_password}@"
+                                             f"{self.settings.db_host}:"
+                                             f"{self.settings.db_port}/"
+                                             f"{self.settings.db_name}"),
+                                 task_serializer="json",
+                                 result_serializer="json",
+                                 accept_content=["json"],
+                                 timezone="Europe/Berlin",
+                                 enable_utc=True)
+        self.logger.debug(f"Celery init done.")
+
+        # import tasks
+        self.logger.debug(f"Import Celery Tasks ...")
+        for task_directory in tasks_directories:
+            for task_file_path in self._scan_for_python_files(root=task_directory):
+                self._import_task(task_file_path=task_file_path)
+        self.logger.debug(f"Celery Tasks import done.")
+
+        # init worker
+        self._celery_worker = self._celery.Worker(include=include,
+                                                  task_cls=f"{__package_name__}.task:NiceguiAdminBaseTask")
 
         # load extensions
-        for extension_name in settings.active_extensions:
-            try:
-                extension_module = importlib.import_module(extension_name)
+        for extension_name in self.settings.active_extensions:
+            self._import_extension(extension_name=extension_name)
 
-                # look up for NiceguiAdminBaseExtension subclasses in module
-                for attr_name, attr in extension_module.__dict__.items():
-                    if attr_name.startswith("_"):
-                        continue
+        # setup routes & pages
+        ui.page("/")(self.ui_root)
+        ui_app.get("/api")(self.api_root)
 
-                    # check if attr is a instance of NiceguiAdminBaseExtension
-                    if not isinstance(attr, NiceguiAdminBaseExtension):
-                        continue
+    def __call__(self, *args, **kwargs) -> Typer:
+        cli = Typer()
 
-                    # add extension
-                    self.add_child(attr)
+        cli.command(name="serve", help="Start the Nicegui Admin Server")(self.serve)
+        cli.command(name="worker", help="Start a Celery Worker")(self.worker)
 
-                for extension_name, extension in self.extensions.items():
-                    # lookup for python files
-                    _python_file_paths = []
-                    for _task_directory in extension.info.task_directories:
-                        _result = _scan_for_python_files(root=_task_directory)
-                        _python_file_paths.extend(_result)
+        return cli(*args, **kwargs)
 
-                    # get import strings
-                    _import_strings = []
-                    for _python_file_path in _python_file_paths:
-                        _import_string = _python_file_path.relative_to(Path(extension.info.base_path).parent).with_suffix("").as_posix().replace("/", ".")
-                        _import_strings.append(_import_string)
+    def _scan_for_python_files(self,
+                               root: Path):
+        self.logger.debug(f"Scan for python files in {root} ...")
+        files = []
+        for d in root.iterdir():
+            if d.is_dir():
+                r = self._scan_for_python_files(root=d)
+                files.extend(r)
+            elif d.is_file() and d.suffix == ".py" and d.stem != "__init__":
+                files.append(d)
+        self.logger.debug(f"Scan for python files in {root} done. Got {len(files)} files.")
+        return files
 
-                    # import task files
-                    for _import_string in _import_strings:
-                        importlib.import_module(_import_string)
-            except ModuleNotFoundError as e:
-                console.print(f"Extension '{extension_name}' not found!\n"
-                              f"{e}", style="red")
-                tb = traceback.format_tb(e.__traceback__)
-                console.print(tb, style="red")
+    def _get_search_objs(self,
+                         module: ModuleType,
+                         import_cls: type,
+                         instance_mode: bool = True) -> list[Any]:
+        self.logger.debug(f"Get search objects in {module.__name__} ...")
+
+        search_objs = []
+        for attr_name, attr in module.__dict__.items():
+            if attr_name.startswith("_"):
                 continue
-            except Exception as e:
-                console.print(f"Error loading extension '{extension_name}'!\n"
-                              f"{e}", style="red")
-                tb = traceback.format_tb(e.__traceback__)
-                console.print(tb, style="red")
+            if attr is import_cls:
                 continue
+            if instance_mode:
+                if not isinstance(attr, import_cls):
+                    continue
+            else:
+                try:
+                    if not issubclass(attr, import_cls):
+                        continue
+                except TypeError:
+                    continue
+            search_objs.append(attr)
 
-        # include router
-        core_api_app.include_router(self.router)
+        self.logger.debug(f"Get search objects in {module.__name__} done. Got {len(search_objs)} objects.")
+
+        return search_objs
+
+    def _import_file(self,
+                     file_path: Path,
+                     import_cls: type,
+                     base_path: Path | None = None,
+                     instance_mode: bool = True) -> Any:
+        self.logger.debug(f"Import file {file_path} ...")
+
+        # check if file exists
+        if not file_path.is_file():
+            raise FileNotFoundError(f"File '{file_path}' not found!")
+
+        # set base path
+        if base_path is None:
+            base_path = Path(__file__).parent.parent
+
+        # get import string
+        import_string = file_path.relative_to(base_path).with_suffix("").as_posix().replace("/", ".")
+        module = importlib.import_module(import_string)
+
+        # search for objects
+        search_objs = self._get_search_objs(module=module,
+                                            import_cls=import_cls,
+                                            instance_mode=instance_mode)
+
+        self.logger.debug(f"Import file {file_path} done. Got {len(search_objs)} objects.")
+
+        return search_objs
+
+    def _import_router(self,
+                       router_file_path: Path,
+                       base_path: Path | None = None,
+                       overwrite_tags: list[str] | None = None,
+                       overwrite_prefix: str | None = None) -> None:
+        self.logger.debug(f"Import router {router_file_path} ...")
+        api_router = self._import_file(file_path=router_file_path,
+                                       import_cls=NiceguiAdminAPIRouter,
+                                       base_path=base_path,
+                                       instance_mode=True)
+        for api_router_instance in api_router:
+            # overwrite tags
+            if overwrite_tags:
+                api_router_instance.tags = overwrite_tags
+                for route in api_router_instance.routes:
+                    route.tags = overwrite_tags
+
+            # overwrite prefix
+            if overwrite_prefix:
+                api_router_instance.prefix = overwrite_prefix + api_router_instance.prefix
+                for route in api_router_instance.routes:
+                    route.path = overwrite_prefix + route.path
+
+            self.logger.debug(f"Register router {api_router_instance} ...")
+            ui_app.include_router(api_router_instance)
+        self.logger.debug(f"Import router {router_file_path} done.")
+
+    def _import_layout(self,
+                       layout_file_path: Path,
+                       base_path: Path | None = None) -> None:
+        self.logger.debug(f"Import layout {layout_file_path} ...")
+        layouts = self._import_file(file_path=layout_file_path,
+                                    import_cls=NiceguiAdminLayout,
+                                    base_path=base_path,
+                                    instance_mode=True)
+        for layout in layouts:
+            self.logger.debug(f"Register layout {layout} ...")
+            self.add_child(layout)
+        self.logger.debug(f"Import layout {layout_file_path} done.")
+
+    def _add_static(self,
+                    url_path: str,
+                    local_directory: Path,
+                    overwrite_tags: list[str] | None = None) -> None:
+        if overwrite_tags is None:
+            overwrite_tags = []
+        if "Static Files" not in overwrite_tags:
+            overwrite_tags.append("Static Files")
+
+        self.logger.debug(f"Add static files {url_path} ...")
+
+        routes_backup = self.app.routes.copy()
+        self.app.add_static_files(url_path=f"{url_path}",
+                                  local_directory=local_directory)
+        if overwrite_tags:
+            delta = []
+            for route in self.app.routes:
+                if route in routes_backup:
+                    continue
+                delta.append(route)
+            for route in delta:
+                route.tags.extend(overwrite_tags)
+        self.logger.debug(f"Add static files {url_path} done.")
+
+    def _import_task(self,
+                     task_file_path: Path,
+                     base_path: Path | None = None) -> None:
+        self.logger.debug(f"Import task {task_file_path} ...")
+        tasks = self._import_file(file_path=task_file_path,
+                                  import_cls=NiceguiAdminBaseTask,
+                                  instance_mode=False,
+                                  base_path=base_path)
+        for task in tasks:
+            self.logger.debug(f"Register task {task} ...")
+            self.celery.register_task(task())
+        self.logger.debug(f"Import task {task_file_path} done.")
+
+    def _import_extension(self,
+                          extension_name: Path) -> None:
+        self.logger.debug(f"Import extension {extension_name} ...")
+
+        # import extension
+        extension_module = importlib.import_module(extension_name)
+
+        # search for NiceguiAdminBaseExtension subclasses in module
+        extensions: NiceguiAdminBaseExtension = self._get_search_objs(module=extension_module,
+                                                                      import_cls=NiceguiAdminBaseExtension,
+                                                                      instance_mode=True)
+
+        # add extension
+        for extension in extensions:
+            # import router
+            self.logger.debug(f"Import router for extension {extension.info.name} ...")
+            for router_directory in extension.info.router_directories:
+                self.logger.debug(f"Import router {router_directory} for extension {extension.info.name} ...")
+                for router_file_path in self._scan_for_python_files(root=router_directory):
+                    self._import_router(router_file_path=router_file_path,
+                                        base_path=extension.info.base_path.parent,
+                                        overwrite_tags=[f"Extensions - {extension.info.title}"],
+                                        overwrite_prefix=f"/extensions/{extension.info.short_name}")
+                self.logger.debug(f"Import router {router_directory} for extension {extension.info.name} done.")
+            self.logger.debug(f"Import router for extension {extension.info.name} done.")
+
+            # import layouts
+            self.logger.debug(f"Import layouts for extension {extension.info.name} ...")
+            for layout_directory in extension.info.layout_directories:
+                self.logger.debug(f"Import layouts {layout_directory} for extension {extension.info.name} ...")
+                for layout_file_path in self._scan_for_python_files(root=layout_directory):
+                    self._import_layout(layout_file_path=layout_file_path,
+                                        base_path=extension.info.base_path.parent)
+                self.logger.debug(f"Import layouts {layout_directory} for extension {extension.info.name} done.")
+            self.logger.debug(f"Import layouts for extension {extension.info.name} done.")
+
+            # add static files
+            self.logger.debug(f"Add static files for extension {extension.info.name} ...")
+            for static_directory in extension.info.static_directories:
+                self.logger.debug(f"Add static files {static_directory} for extension {extension.info.name} ...")
+                self._add_static(url_path=f"/extensions/{extension.info.short_name}/static",
+                                 local_directory=static_directory,
+                                 overwrite_tags=[f"Extensions - {extension.info.title}"])
+                self.logger.debug(f"Add static files {static_directory} for extension {extension.info.name} done.")
+
+            # import tasks
+            self.logger.debug(f"Import tasks for extension {extension.info.name} ...")
+            for task_directory in extension.info.task_directories:
+                self.logger.debug(f"Import tasks {task_directory} for extension {extension.info.name} ...")
+                for task_file_path in self._scan_for_python_files(root=task_directory):
+                    self._import_task(task_file_path=task_file_path,
+                                      base_path=extension.info.base_path.parent)
+                self.logger.debug(f"Import tasks {task_directory} for extension {extension.info.name} done.")
+            self.logger.debug(f"Import tasks for extension {extension.info.name} done.")
+
+            self.add_child(extension)
+
+        self.logger.debug(f"Import extension {extension_name} done.")
+
+    @property
+    def app(self) -> UiApp:
+        return ui_app
+
+    @property
+    def routes(self) -> list[Route]:
+        return self.app.routes
+
+    @property
+    def layouts(self) -> list[NiceguiAdminLayout]:
+        layouts = {}
+        for children_name, children in self.children.items():
+            if isinstance(children, NiceguiAdminLayout):
+                layouts[children_name] = children
+        return layouts
+
+    @property
+    def celery(self) -> Celery:
+        return self._celery
+
+    @property
+    def celery_worker(self) -> Worker:
+        return self._celery_worker
+
+    @property
+    def tasks(self):
+        return self.celery.tasks
 
     @property
     def extensions(self) -> dict[str, NiceguiAdminBaseExtension]:
         extensions = {}
         for children_name, children in self.children.items():
-            if not isinstance(children, NiceguiAdminBaseExtension):
-                continue
-            extensions[children_name] = children
+            if isinstance(children, NiceguiAdminBaseExtension):
+                extensions[children_name] = children
         return extensions
 
-    @property
-    def layouts(self) -> dict[str, NiceGuiAdminBaseLayout]:
-        layouts = {}
-        for children_name, children in self.children.items():
-            if not isinstance(children, NiceGuiAdminBaseLayout):
-                continue
-            layouts[children_name] = children
-        return layouts
+    async def ui_root(self):
+        ui.label("root")
 
-    async def root(self):
-        return {"info": "Welcome to the Nicegui Admin!"}
-#         async def start_new_task():
-#             console.pager("start new task")
-#             # result: AsyncResult = send_mail.apply_async(kwargs={"recipient": receiver.value,
-#             #                                                     "subject": subject.value,
-#             #                                                     "html_str": editor.value})
-#             # ui.notify(result)
-#
-#         ui.label("Worker Test")
-#
-#         with ui.card().classes("w-full").tight():
-#             with ui.card_section().classes("w-full"):
-#                 ui.label("Versenden einer Test E-Mail").classes("text-xl text-bold")
-#             ui.separator()
-#             with ui.card_section().props("horizontal").classes("w-full"):
-#                 with ui.card_section().classes("w-full"):
-#                     receiver = ui.input(value="julius@koenig-site.de",
-#                                         placeholder="Receiver").props("outlined dense").classes("w-full, mb-1")
-#                     subject = ui.input(value="Test Mail from Worker Test",
-#                                        placeholder="Subject").props("outlined dense").classes("w-full mb-1")
-#                     editor = ui.editor(value="""\
-# <html>
-#   <body>
-#     <p>Hi,<br>
-#        How are you?<br>
-#        <a href="http://www.realpython.com">Real Python</a>
-#        has many great tutorials.
-#     </p>
-#   </body>
-# </html>
-# """,
-#                                        placeholder="Enter your message body here...")
-#             ui.separator()
-#             with ui.card_actions().classes("w-full"):
-#                 ui.button(text="Send",
-#                           icon="send",
-#                           on_click=lambda e: start_new_task())
-#
-#         with ui.header(elevated=True):
-#             ui.button(on_click=lambda: left_drawer.toggle(), icon="menu").props("flat").props("color=white")
-#         with ui.left_drawer(fixed=False).style("background-color: #ebf1fa").props("bordered") as left_drawer:
-#             ui.label("LEFT DRAWER")
-#
-#         log_drawer = LogDrawer(title="Task Log",
-#                                opened=False)
-#
-#         with ui.footer():
-#             ui.label("FOOTER")
-#
-#         with ui.page_scroller(position="bottom-right", x_offset=20, y_offset=20):
-#             ui.button("Scroll to Top")
+    async def api_root(self):
+        self.logger.debug(f"Nicegui Admin API Root ...")
+        return {"message": "Hello World"}
 
-# init settings
-settings = Settings()
+    def serve(self):
+        self.logger.info(f"Starting Nicegui Admin Server at http://{self.settings.uvicorn_host}:{self.settings.uvicorn_port} ...")
 
-# init api app
-core_api_app = FastAPI(contact=settings.fastapi_contact,
-                       debug=settings.fastapi_debug,
-                       deprecated=settings.fastapi_deprecated,
-                       description=settings.fastapi_description,
-                       docs_url=f"{settings.nicegui_mount_path}{settings.fastapi_docs_url}",
-                       extra=settings.fastapi_extra,
-                       include_in_schema=settings.fastapi_include_in_schema,
-                       license_info=settings.fastapi_license_info,
-                       openapi_external_docs=settings.fastapi_openapi_external_docs,
-                       openapi_prefix=settings.fastapi_openapi_prefix,
-                       openapi_tags=settings.fastapi_openapi_tags,
-                       openapi_url=f"{settings.nicegui_mount_path}{settings.fastapi_openapi_url}",
-                       redirect_slashes=settings.fastapi_redirect_slashes,
-                       redoc_url=f"{settings.nicegui_mount_path}{settings.fastapi_redoc_url}",
-                       responses=settings.fastapi_responses,
-                       root_path=settings.fastapi_root_path,
-                       root_path_in_servers=settings.fastapi_root_path_in_servers,
-                       separate_input_output_schemas=settings.fastapi_separate_input_output_schemas,
-                       servers=settings.fastapi_servers,
-                       strict_content_type=settings.fastapi_strict_content_type,
-                       summary=settings.fastapi_summary,
-                       swagger_ui_init_oauth=settings.fastapi_swagger_ui_init_oauth,
-                       swagger_ui_oauth2_redirect_url=f"{settings.nicegui_mount_path}{settings.fastapi_swagger_ui_oauth2_redirect_url}",
-                       swagger_ui_parameters=settings.fastapi_swagger_ui_parameters,
-                       terms_of_service=settings.fastapi_terms_of_service,
-                       title=settings.fastapi_title,
-                       version=settings.fastapi_version)
+        # start uvicorn
+        uvicorn.run(host=str(self.settings.uvicorn_host),
+                    port=self.settings.uvicorn_port,
+                    reload=self.settings.uvicorn_reload,
+                    app=ui_app,
+                    workers=self.settings.uvicorn_workers,
+                    log_level="info")
 
-core_api_router: APIRouter = core_api_app.router
-
-# init ui app
-ui_app.docs_url = "/docs"
-ui_app.redoc_url = "/redoc"
-ui_app.openapi_url = "/openapi.json"
-ui_app.setup()
-ui.run_with(app=core_api_app,
-            title=settings.nicegui_title,
-            viewport=settings.nicegui_viewport,
-            favicon=settings.nicegui_favicon,
-            dark=settings.nicegui_dark,
-            language=settings.nicegui_language,
-            binding_refresh_interval=settings.nicegui_binding_refresh_interval,
-            reconnect_timeout=settings.nicegui_reconnect_timeout,
-            message_history_length=settings.nicegui_message_history_length,
-            cache_control_directives=settings.nicegui_cache_control_directives,
-            gzip_middleware_factory=None,
-            mount_path=settings.nicegui_mount_path,
-            on_air=None,
-            tailwind=settings.nicegui_tailwind,
-            unocss=settings.nicegui_unocss,
-            prod_js=settings.nicegui_prod_js,
-            storage_secret=settings.nicegui_storage_secret,
-            show_welcome_message=settings.nicegui_show_welcome_message)
-
-# init celery
-celery = Celery(__name__,
-                include=[f"{__name__}.extensions",
-                         f"{__name__}.tasks"],
-                task_cls=f"{__name__}.task:{NiceguiAdminBaseTask.__name__}")
-celery.conf.update(broker_url=(f"pyamqp://{settings.broker_username}:"
-                               f"{settings.broker_password}@"
-                               f"{settings.broker_host}:"
-                               f"{settings.broker_port}"),
-                   result_backend=(f"db+mysql+pymysql://"
-                                   f"{settings.db_username}:"
-                                   f"{settings.db_password}@"
-                                   f"{settings.db_host}:"
-                                   f"{settings.db_port}/"
-                                   f"{settings.db_name}"),
-                   beat_scheduler="sqlalchemy_celery_beat.schedulers:DatabaseScheduler",
-                   beat_dburi=(f"mysql+pymysql://"
-                               f"{settings.db_username}:"
-                               f"{settings.db_password}@"
-                               f"{settings.db_host}:"
-                               f"{settings.db_port}/"
-                               f"{settings.db_name}"),
-                   task_serializer="json",
-                   result_serializer="json",
-                   accept_content=["json"],
-                   timezone="Europe/Berlin",
-                   enable_utc=True)
-
-# init admin
-core_admin = NiceguiBaseAdmin()
-
-
-# start uvicorn
-app =f"{Path(__file__).relative_to(Path(__file__).parent.parent).with_suffix("")}:core_api_app".replace("/", ".")
-uvicorn.run(host=str(settings.uvicorn_host),
-            port=settings.uvicorn_port,
-            reload=settings.uvicorn_reload,
-            app=app,
-            workers=settings.uvicorn_workers,
-            log_level="info")
+    def worker(self):
+        self.celery_worker.start()

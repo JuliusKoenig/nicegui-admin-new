@@ -1,3 +1,5 @@
+import sys
+
 from rich.console import Console
 
-console = Console()
+console = Console(file=sys.stdout)
