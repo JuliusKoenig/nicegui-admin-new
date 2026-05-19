@@ -258,22 +258,28 @@ class CrudRouter(APIRouter):
         # create routes
         self.add_api_route(path="/count",
                            endpoint=count_objects,
-                           methods=["GET"])
+                           methods=["GET"],
+                           summary=f"Count {self.name}")
         self.add_api_route(path="/list",
                            endpoint=list_objects,
-                           methods=["GET"])
+                           methods=["GET"],
+                           summary=f"List {self.name}")
         self.add_api_route(path="/detail/{pk}",
                            endpoint=detail_object,
-                           methods=["GET"])
+                           methods=["GET"],
+                           summary=f"Show {self.name} details")
         self.add_api_route(path="/create",
                            endpoint=create_object,
-                           methods=["POST"])
+                           methods=["POST"],
+                           summary=f"Create {self.name}")
         self.add_api_route(path="/edit/{pk}",
                            endpoint=edit_object,
-                           methods=["PUT"])
+                           methods=["PUT"],
+                           summary=f"Edit {self.name}")
         self.add_api_route(path="/delete/{pk}",
                            endpoint=delete_object,
-                           methods=["DELETE"])
+                           methods=["DELETE"],
+                           summary=f"Delete {self.name}")
 
     @property
     def name(self) -> str:
