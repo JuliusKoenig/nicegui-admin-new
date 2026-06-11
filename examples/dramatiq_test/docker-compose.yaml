@@ -1,0 +1,42 @@
+services:
+  broker:
+    image: rabbitmq:latest
+    container_name: broker
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "8002:15672"
+    networks:
+      - internal
+    env_file:
+      - dev.env
+    configs:
+      - source: broker-config
+        target: /etc/rabbitmq/rabbitmq.conf
+      - source: broker-plugins
+        target: /etc/rabbitmq/enabled_plugins
+    volumes:
+      - "broker_logs:/broker/log:/var/log/rabbitmq/"
+      - "broker_data:/broker/data:/var/lib/rabbitmq/"
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      start_period: 30s
+      start_interval: 1s
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+configs:
+  broker-config:
+    content: "deprecated_features.permit.transient_nonexcl_queues = true"
+  broker-plugins:
+    content: "[rabbitmq_management]."
+
+volumes:
+  broker_logs:
+    driver: local
+  broker_data:
+    driver: local
+
+networks:
+  internal:
